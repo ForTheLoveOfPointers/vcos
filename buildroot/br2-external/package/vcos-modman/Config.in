@@ -1,0 +1,4 @@
+config BR2_PACKAGE_VCOS_MODMAN
+	bool "vcos-modman"
+	help
+	  Offline .vmod package installer for VCOS modules.

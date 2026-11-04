@@ -1,0 +1,6 @@
+config BR2_PACKAGE_VCOS_GUEST
+	bool "vcos-guest"
+	select BR2_PACKAGE_HOST_PYTHON3
+	help
+	  Build the VCOS guest cartridges (shell and demo) with the
+	  bundled 6502 assembler. Installed under /usr/share/vcos.

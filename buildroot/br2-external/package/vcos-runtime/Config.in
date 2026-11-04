@@ -1,0 +1,5 @@
+config BR2_PACKAGE_VCOS_RUNTIME
+	bool "vcos-runtime"
+	help
+	  VCOS virtual-console runtime: a 6502/NES-compatible virtual
+	  machine that runs as the primary environment on the target.

@@ -1,0 +1,169 @@
+VCOS
+====
+
+VCOS is a small, modular virtual-console operating system. It boots as a
+minimal Linux/Buildroot image, presents a native runtime, and loads each
+emulator or system implementation as a versioned native module instead of
+rebuilding the whole OS.
+
+The project is currently a QEMU x86_64 development image. It is not yet a
+general-purpose console release.
+
+
+IDEA
+----
+
+A console OS should separate three things:
+
+1. The platform
+   Boot, display, audio, input, storage, module lifecycle and updates.
+
+2. The systems
+   NES, SNES, Genesis, PlayStation, Nintendo 64, and so on.
+
+3. The content
+   ROMs, disc images, BIOSes and save data.
+
+VCOS owns the platform. A module owns one system. A .vmod package carries a
+module and its manifest. The platform verifies, installs and runs modules
+without knowing how each emulator works.
+
+
+ARCHITECTURE
+------------
+
+  vcos
+    The native runtime: backend selection, input, audio, module loading,
+    save states, logging and the guest compatibility shell.
+
+  vcos-module-host
+    The isolated process that loads one module at a time. Modules talk to
+    the host through a versioned C ABI and never own the display, audio
+    device or content loader directly.
+
+  include/vcos_module.h
+    The module ABI. It covers module metadata, systems, content, input,
+    video, audio, save states and lifecycle.
+
+  modules/
+    Built-in implementations. The current modules are a null test module
+    and the NES emulator.
+
+  vcos-modman
+    The package manager. It validates .vmod archives, checks SHA-256
+    hashes, verifies detached Ed25519 signatures and installs modules
+    atomically under /var/lib/vcos/modules.
+
+  guest/
+    A small 6502 guest shell and demo cartridges used as the compatibility
+    path and as a way to exercise the NES runtime.
+
+  buildroot/br2-external/
+    The Buildroot configuration that produces the bootable image.
+
+
+PACKAGES
+--------
+
+A .vmod is an uncompressed ustar archive containing:
+
+  manifest.json
+  payload/module.so
+
+The manifest declares the module id, version, architecture, ABI version,
+entrypoint, supported systems, file extensions and a SHA-256 hash for every
+file. Installation checks all of it before writing the module.
+
+A package may be signed. The signature is detached and named after the
+package:
+
+  demo-1.0.0.vmod
+  demo-1.0.0.vmod.sig
+
+The current signing format is Ed25519 over the package SHA-256 digest. The
+public key is embedded in vcos-modman. Unsigned packages are accepted only
+with --allow-unsigned and are intended for development.
+
+Installation can use a local file or a direct HTTPS URL:
+
+  vcos-modman install /mnt/demo-1.0.0.vmod
+  vcos-modman install https://example.com/modules/demo-1.0.0.vmod
+
+Online installation is direct-URL only. There is no catalog or search yet.
+
+
+SECURITY MODEL
+--------------
+
+The package signature answers one question: did a trusted key sign these
+exact bytes?
+
+It does not sandbox the module. Downloaded modules still execute native code
+inside vcos-module-host. The current image also uses a development signing
+key and a passwordless serial console. Treat this tree as a development
+platform until production key handling, seccomp/Landlock isolation and
+update/rollback are in place.
+
+
+BUILD
+-----
+
+Host requirements: a C11 compiler, make, Python 3, OpenSSL, curl and
+optionally libX11 development headers.
+
+  make test          build and run host tests
+  make test-image    boot the Buildroot image in QEMU
+  make test-modman-image
+                     test local and HTTPS module installation in QEMU
+  make run           run the legacy shell in an X11 window
+  make run-headless  render the shell headlessly
+  make modular       build the module host and package manager
+  make vmod-sign     package and sign the target NES module
+
+The full image is produced with:
+
+  ./scripts/get-buildroot.sh
+  ./scripts/build-image.sh
+
+Artifacts land in buildroot/output/images/. That directory, the Buildroot
+source tree, local signing keys and test output are not stored in Git.
+
+
+DATA
+----
+
+  /usr/lib/vcos/modules     built-in modules
+  /var/lib/vcos/modules     installed modules
+  /var/lib/vcos/games       user content
+  /var/lib/vcos/saves       save data
+  /var/lib/vcos/downloads   temporary online downloads
+  /var/lib/vcos/logs        runtime and module logs
+
+
+ROADMAP
+-------
+
+Near term:
+
+  - libretro adapter for reusable emulator cores
+  - PlayStation compatibility through a libretro core
+  - module sandboxing
+  - production signing keys and key rotation
+  - update and rollback with save preservation
+  - real-hardware validation
+
+Not in scope yet:
+
+  - online catalog or search
+  - cloud saves
+  - a general-purpose desktop environment
+  - distributing BIOS files or commercial games
+
+
+LICENSE
+-------
+
+MIT. See LICENSE.
+
+Third-party games and emulator cores keep their own licenses. Do not commit
+BIOS files, commercial ROMs or disc images.

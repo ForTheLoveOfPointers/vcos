@@ -1,0 +1,5 @@
+source "$BR2_EXTERNAL_VCOS_PATH/package/vcos-runtime/Config.in"
+source "$BR2_EXTERNAL_VCOS_PATH/package/vcos-guest/Config.in"
+source "$BR2_EXTERNAL_VCOS_PATH/package/vcos-modules/Config.in"
+source "$BR2_EXTERNAL_VCOS_PATH/package/vcos-module-host/Config.in"
+source "$BR2_EXTERNAL_VCOS_PATH/package/vcos-modman/Config.in"

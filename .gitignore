@@ -1,0 +1,30 @@
+# Build products and local toolchains
+/build/
+/buildroot/buildroot/
+/buildroot/output/
+/guest/out/
+
+# Local signing material
+/keys/private/
+
+# Generated packages, images, logs and test output
+*.vmod
+*.sig
+*.img
+*.iso
+*.ext2
+*.ext4
+*.vfat
+*.tar
+*.ppm
+*.log
+*.o
+*.pyc
+__pycache__/
+
+# Documentation is kept outside the repository for now.
+*.md
+
+# Local editor/debug junk
+.DS_Store
+tests/.qemu_keep.sh

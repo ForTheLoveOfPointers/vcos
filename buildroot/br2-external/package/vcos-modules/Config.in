@@ -1,0 +1,5 @@
+config BR2_PACKAGE_VCOS_MODULES
+	bool "vcos-modules"
+	help
+	  Emulator modules for the VCOS module host. Installs the NES and
+	  null test modules under /usr/lib/vcos/modules.

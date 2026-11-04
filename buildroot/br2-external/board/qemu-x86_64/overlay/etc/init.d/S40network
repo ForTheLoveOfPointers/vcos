@@ -1,0 +1,27 @@
+#!/bin/sh
+#
+# Bring up the QEMU virtio NIC and obtain a DHCP lease.
+
+case "$1" in
+start)
+	printf "Starting network: "
+	ip link set eth0 up 2>/dev/null || true
+	if command -v udhcpc >/dev/null 2>&1; then
+		udhcpc -i eth0 -b -t 5 -T 2 >/dev/null 2>&1 || true
+	fi
+	echo "ok"
+	;;
+stop)
+	printf "Stopping network: "
+	ip link set eth0 down 2>/dev/null || true
+	echo "ok"
+	;;
+restart|reload)
+	"$0" stop
+	"$0" start
+	;;
+*)
+	echo "Usage: $0 {start|stop|restart}"
+	exit 1
+	;;
+esac

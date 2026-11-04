@@ -1,0 +1,42 @@
+#!/bin/sh
+#
+# Start the VCOS virtual-console runtime as the primary environment.
+
+case "$1" in
+start)
+	printf "Starting VCOS: "
+	mount -a 2>/dev/null || true
+	mkdir -p /var/lib/vcos/games /var/lib/vcos/modules /var/lib/vcos/downloads/staging /var/lib/vcos/manifests /var/lib/vcos/logs/modules /var/lib/vcos/logs/crashes /var/log
+	/usr/bin/vcos-doctor >>/var/lib/vcos/hardware.log 2>&1 || true
+	/usr/bin/vcos \
+		--backend drm \
+		--rom /usr/share/vcos/shell.nes \
+		--shell /usr/share/vcos/shell.nes \
+		--lib /usr/share/vcos \
+		--data /var/lib/vcos \
+		--audio auto \
+		--on-shutdown poweroff \
+		--verbose >>/var/lib/vcos/vcos.log 2>&1 &
+	echo $! >/var/run/vcos.pid
+	echo "ok"
+	;;
+stop)
+	printf "Stopping VCOS: "
+	if [ -f /var/run/vcos.pid ]; then
+		kill "$(cat /var/run/vcos.pid)" 2>/dev/null || true
+		rm -f /var/run/vcos.pid
+	else
+		killall vcos 2>/dev/null || true
+	fi
+	echo "ok"
+	;;
+restart|reload)
+	"$0" stop
+	sleep 1
+	"$0" start
+	;;
+*)
+	echo "Usage: $0 {start|stop|restart}"
+	exit 1
+	;;
+esac

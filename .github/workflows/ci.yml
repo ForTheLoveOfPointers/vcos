@@ -1,0 +1,58 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install host dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3 libssl-dev libx11-dev pkg-config curl openssl
+      - name: Generate test signing key
+        run: |
+          mkdir -p keys/private
+          openssl genpkey -algorithm ED25519 \
+            -out keys/private/vcos-signing-private.pem
+          openssl pkey -in keys/private/vcos-signing-private.pem \
+            -pubout -out keys/vcos-signing-public.pem
+          ./scripts/embed-pubkey.sh
+      - name: Host tests
+        run: make test
+
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install image dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential python3 libx11-dev pkg-config \
+            bc bison bzip2 cpio dosfstools e2fsprogs file flex gawk gettext \
+            git libncurses-dev libssl-dev mtools patch perl rsync texinfo \
+            unzip wget zlib1g-dev qemu-system-x86 ovmf socat curl openssl
+      - name: Generate test signing key
+        run: |
+          mkdir -p keys/private
+          openssl genpkey -algorithm ED25519 \
+            -out keys/private/vcos-signing-private.pem
+          openssl pkey -in keys/private/vcos-signing-private.pem \
+            -pubout -out keys/vcos-signing-public.pem
+          ./scripts/embed-pubkey.sh
+      - name: Build image
+        run: ./scripts/build-image.sh
+      - name: Boot image under QEMU
+        run: make test-image
+      - name: Test runtime module installation
+        run: make test-modman-image
+      - name: Upload image artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcos-image
+          path: |
+            buildroot/output/images/vcos.img
+            buildroot/output/images/SHA256SUMS
+            buildroot/output/images/vcos.img.sha256

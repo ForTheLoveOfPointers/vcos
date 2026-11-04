@@ -1,0 +1,20 @@
+#!/bin/sh
+# Collect the information needed to diagnose physical-hardware boots.
+echo "=== VCOS hardware report $(date -u 2>/dev/null || date) ==="
+cat /etc/vcos-release 2>/dev/null
+echo "cmdline: $(cat /proc/cmdline 2>/dev/null)"
+uname -a 2>/dev/null
+echo "--- block devices ---"
+cat /proc/partitions 2>/dev/null
+blkid 2>/dev/null
+echo "--- mounts ---"
+mount 2>/dev/null | grep -E 'vcos|/var/lib|/dev/fb|/dev/dri' || true
+echo "--- display ---"
+ls -l /dev/fb* /dev/dri/* 2>/dev/null || true
+cat /proc/fb 2>/dev/null
+echo "--- input ---"
+ls -l /dev/input/* 2>/dev/null || true
+echo "--- audio ---"
+ls -l /dev/snd/* 2>/dev/null || true
+cat /proc/asound/cards 2>/dev/null
+echo

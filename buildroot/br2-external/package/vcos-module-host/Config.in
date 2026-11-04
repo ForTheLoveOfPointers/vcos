@@ -1,0 +1,5 @@
+config BR2_PACKAGE_VCOS_MODULE_HOST
+	bool "vcos-module-host"
+	select BR2_PACKAGE_LIBDRM
+	help
+	  Load and run VCOS emulator modules in a separate process.
