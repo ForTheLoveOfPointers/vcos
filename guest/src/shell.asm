@@ -1,9 +1,12 @@
-; VCOS guest shell: library menu, boot counter, launch and power off.
+; VCOS guest shell: console menu, game menu, launch and power off.
 
 .include "common.inc"
 
-.equ ROW_LIST0, $0102
-.equ ROW_STEP,  $0040
+.equ MODE,       $18
+.equ SYS_SEL,    $11
+.equ SYS_COUNT,  $16
+.equ GAME_SEL,   $19
+.equ GAME_COUNT, $1B
 
 .org $8000
 reset:
@@ -63,19 +66,11 @@ boot_store:
     LDA #SVC_SAVE
     STA SVC_CMD
 
-    LDA #SVC_LIB_COUNT
-    STA SVC_CMD
-    LDA SVC_DATA
-    STA $12
-    CMP #6
-    BCC count_ok
-    LDA #6
-count_ok:
-    STA $16
+    JSR load_systems
     LDA #0
-    STA $11
-    STA $13
-
+    STA MODE
+    STA SYS_SEL
+    STA GAME_SEL
     JSR draw_ui
 
 main_loop:
@@ -87,45 +82,144 @@ main_loop:
     LDA $10
     STA $13
 
+    LDA MODE
+    BNE game_input
+
     LDA $15
     AND #BTN_DOWN
-    BNE move_down
+    BEQ no_sys_down
+    JMP sys_down
+no_sys_down:
     LDA $15
     AND #BTN_UP
-    BNE move_up
+    BEQ no_sys_up
+    JMP sys_up
+no_sys_up:
     LDA $15
     AND #(BTN_A | BTN_START)
-    BNE launch_selected
+    BEQ no_open_system
+    JMP open_system
+no_open_system:
     LDA $15
     AND #BTN_SELECT
-    BNE power_off
+    BEQ no_power_sys
+    JMP power_off
+no_power_sys:
     JMP main_loop
 
-move_down:
-    LDA $11
+game_input:
+    LDA $15
+    AND #BTN_DOWN
+    BEQ no_game_down
+    JMP game_down
+no_game_down:
+    LDA $15
+    AND #BTN_UP
+    BEQ no_game_up
+    JMP game_up
+no_game_up:
+    LDA $15
+    AND #BTN_B
+    BEQ no_close_system
+    JMP close_system
+no_close_system:
+    LDA $15
+    AND #(BTN_A | BTN_START)
+    BEQ no_launch_game
+    JMP launch_game
+no_launch_game:
+    LDA $15
+    AND #BTN_SELECT
+    BEQ no_power_game
+    JMP power_off
+no_power_game:
+    JMP main_loop
+
+sys_down:
+    LDA SYS_SEL
     CLC
     ADC #1
-    CMP $16
-    BCS main_loop
-    STA $11
+    CMP SYS_COUNT
+    BCC sys_down_ok
+    JMP main_loop
+sys_down_ok:
+    STA SYS_SEL
     JSR draw_ui
     JMP main_loop
 
-move_up:
-    LDA $11
-    BEQ main_loop
+sys_up:
+    LDA SYS_SEL
+    BNE sys_up_ok
+    JMP main_loop
+sys_up_ok:
     SEC
     SBC #1
-    STA $11
+    STA SYS_SEL
     JSR draw_ui
     JMP main_loop
 
-launch_selected:
-    LDA $16
-    BEQ main_loop
-    LDA $11
+game_down:
+    LDA GAME_SEL
+    CLC
+    ADC #1
+    CMP GAME_COUNT
+    BCC game_down_ok
+    JMP main_loop
+game_down_ok:
+    STA GAME_SEL
+    JSR draw_ui
+    JMP main_loop
+
+game_up:
+    LDA GAME_SEL
+    BNE game_up_ok
+    JMP main_loop
+game_up_ok:
+    SEC
+    SBC #1
+    STA GAME_SEL
+    JSR draw_ui
+    JMP main_loop
+
+open_system:
+    LDA SYS_COUNT
+    BNE open_system_ok
+    JMP main_loop
+open_system_ok:
+    LDA SYS_SEL
     STA SVC_ARG0
-    LDA #SVC_LIB_LAUNCH
+    LDA #SVC_SYS_GAME_COUNT
+    STA SVC_CMD
+    LDA SVC_DATA
+    CMP #6
+    BCC game_count_ok
+    LDA #6
+game_count_ok:
+    STA GAME_COUNT
+    LDA #0
+    STA GAME_SEL
+    LDA #1
+    STA MODE
+    JSR draw_ui
+    JMP main_loop
+
+close_system:
+    LDA #0
+    STA MODE
+    STA GAME_SEL
+    JSR draw_ui
+    JMP main_loop
+
+launch_game:
+    LDA GAME_COUNT
+    BNE launch_game_ok
+    JMP main_loop
+launch_game_ok:
+    LDA SYS_SEL
+    STA SVC_ARG0
+    LDA GAME_SEL
+    STA SVC_ARG1
+    LDA #SVC_SYS_LAUNCH
     STA SVC_CMD
     JMP main_loop
 
@@ -133,6 +227,17 @@ power_off:
     LDA #SVC_SHUTDOWN
     STA SVC_CMD
     JMP main_loop
+
+load_systems:
+    LDA #SVC_SYS_COUNT
+    STA SVC_CMD
+    LDA SVC_DATA
+    CMP #6
+    BCC load_systems_ok
+    LDA #6
+load_systems_ok:
+    STA SYS_COUNT
+    RTS
 
 draw_ui:
     BIT PPUSTATUS
@@ -158,7 +263,7 @@ clear_nt:
 
     LDA #$20
     STA PPUADDR
-    LDA #$6A
+    LDA #$2A
     STA PPUADDR
     LDA #<msg_title
     STA $00
@@ -168,7 +273,7 @@ clear_nt:
 
     LDA #$20
     STA PPUADDR
-    LDA #$AA
+    LDA #$62
     STA PPUADDR
     LDA #<msg_boot
     STA $00
@@ -181,22 +286,37 @@ clear_nt:
     ADC #$30
     STA PPUDATA
 
-    LDA $16
-    BNE list_start
+    LDA MODE
+    BEQ draw_systems
+    JMP draw_games
+
+draw_systems:
+    LDA #$20
+    STA PPUADDR
+    LDA #$A2
+    STA PPUADDR
+    LDA #<msg_consoles
+    STA $00
+    LDA #>msg_consoles
+    STA $01
+    JSR print
+
+    LDA SYS_COUNT
+    BNE system_list_start
     LDA #$21
     STA PPUADDR
     LDA #$02
     STA PPUADDR
-    LDA #<msg_empty
+    LDA #<msg_no_systems
     STA $00
-    LDA #>msg_empty
+    LDA #>msg_no_systems
     STA $01
     JSR print
     JMP footer
 
-list_start:
+system_list_start:
     LDX #0
-list_loop:
+system_list_loop:
     STX $14
     TXA
     TAY
@@ -208,10 +328,10 @@ list_loop:
     STA PPUADDR
 
     LDA #' '
-    CPX $11
-    BNE marker_done
+    CPX SYS_SEL
+    BNE system_marker_done
     LDA #'>'
-marker_done:
+system_marker_done:
     STA PPUDATA
 
     LDA list_hi,Y
@@ -223,41 +343,141 @@ marker_done:
 
     LDA $14
     STA SVC_ARG0
-    LDA #SVC_LIB_NAME
+    LDA #SVC_SYS_NAME
     STA SVC_CMD
 
     LDY #0
-name_loop:
+system_name_loop:
     LDA SVC_DATA,Y
-    BEQ name_done
+    BEQ system_name_done
     STA PPUDATA
     INY
     CPY #15
-    BNE name_loop
-name_done:
+    BNE system_name_loop
+system_name_done:
     LDX $14
     INX
-    CPX $16
-    BCC list_loop
+    CPX SYS_COUNT
+    BCC system_list_loop
+    JMP footer
+
+draw_games:
+    LDA #$20
+    STA PPUADDR
+    LDA #$A2
+    STA PPUADDR
+    LDA SYS_SEL
+    STA SVC_ARG0
+    LDA #SVC_SYS_NAME
+    STA SVC_CMD
+    LDY #0
+game_header_loop:
+    LDA SVC_DATA,Y
+    BEQ game_header_done
+    STA PPUDATA
+    INY
+    CPY #15
+    BNE game_header_loop
+game_header_done:
+
+    LDA GAME_COUNT
+    BNE game_list_start
+    LDA #$21
+    STA PPUADDR
+    LDA #$02
+    STA PPUADDR
+    LDA #<msg_no_games
+    STA $00
+    LDA #>msg_no_games
+    STA $01
+    JSR print
+    JMP footer
+
+game_list_start:
+    LDX #0
+game_list_loop:
+    STX $14
+    TXA
+    TAY
+    STY $17
+
+    LDA list_hi,Y
+    STA PPUADDR
+    LDA list_lo,Y
+    STA PPUADDR
+
+    LDA #' '
+    CPX GAME_SEL
+    BNE game_marker_done
+    LDA #'>'
+game_marker_done:
+    STA PPUDATA
+
+    LDA list_hi,Y
+    STA PPUADDR
+    LDA list_lo,Y
+    CLC
+    ADC #2
+    STA PPUADDR
+
+    LDA SYS_SEL
+    STA SVC_ARG0
+    LDA $14
+    STA SVC_ARG1
+    LDA #SVC_SYS_GAME_NAME
+    STA SVC_CMD
+
+    LDY #0
+game_name_loop:
+    LDA SVC_DATA,Y
+    BEQ game_name_done
+    STA PPUDATA
+    INY
+    CPY #15
+    BNE game_name_loop
+game_name_done:
+    LDX $14
+    INX
+    CPX GAME_COUNT
+    BCC game_list_loop
 
 footer:
-    LDA #$22
+    LDA MODE
+    BNE game_footer
+    LDA #<msg_sys_help1
+    STA $00
+    LDA #>msg_sys_help1
+    STA $01
+    LDA #<msg_sys_help2
+    STA $02
+    LDA #>msg_sys_help2
+    STA $03
+    JMP draw_footer
+
+game_footer:
+    LDA #<msg_game_help1
+    STA $00
+    LDA #>msg_game_help1
+    STA $01
+    LDA #<msg_game_help2
+    STA $02
+    LDA #>msg_game_help2
+    STA $03
+
+draw_footer:
+    LDA #$23
+    STA PPUADDR
+    LDA #$02
+    STA PPUADDR
+    JSR print
+
+    LDA #$23
     STA PPUADDR
     LDA #$42
     STA PPUADDR
-    LDA #<msg_help1
+    LDA $02
     STA $00
-    LDA #>msg_help1
-    STA $01
-    JSR print
-
-    LDA #$22
-    STA PPUADDR
-    LDA #$82
-    STA PPUADDR
-    LDA #<msg_help2
-    STA $00
-    LDA #>msg_help2
+    LDA $03
     STA $01
     JSR print
 
@@ -315,11 +535,19 @@ msg_title:
     .byte "VCOS SHELL", 0
 msg_boot:
     .byte "BOOT COUNT: ", 0
-msg_empty:
-    .byte "NO CARTRIDGES", 0
-msg_help1:
+msg_consoles:
+    .byte "CONSOLES", 0
+msg_no_systems:
+    .byte "NO CONSOLES", 0
+msg_no_games:
+    .byte "NO GAMES", 0
+msg_sys_help1:
     .byte "UP/DOWN SELECT", 0
-msg_help2:
+msg_sys_help2:
+    .byte "A OPEN  SELECT OFF", 0
+msg_game_help1:
+    .byte "UP/DOWN SELECT  B BACK", 0
+msg_game_help2:
     .byte "A LAUNCH  SELECT OFF", 0
 
 .org $FFFA

@@ -39,7 +39,7 @@ FIRST_COUNT="$(python3 -c 'import sys;d=open(sys.argv[1],"rb").read();assert d[:
 
 echo "integration: shell launches the demo"
 "$BIN" --rom "$LIB/shell.nes" --lib "$LIB" --backend null --frames 24 \
-    --press 6:a --verbose >"$LIB/launch.log" 2>&1
+    --press 6:a --press 16:a --verbose >"$LIB/launch.log" 2>&1
 grep -q "services: launch request" "$LIB/launch.log"
 grep -q "system: loading .*demo.nes" "$LIB/launch.log"
 
@@ -55,9 +55,9 @@ fi
 echo "integration: library menu launches the music cartridge"
 rm -f "$LIB/tune.wav"
 "$BIN" --rom "$LIB/shell.nes" --lib "$LIB" --backend null --frames 90 \
-    --press 10:down --press 18:a --audio "wav:$LIB/tune.wav" \
+    --press 6:a --press 12:down --press 20:a --audio "wav:$LIB/tune.wav" \
     --verbose >"$LIB/music.log" 2>&1
-grep -q "services: library\[1\] MUSIC" "$LIB/music.log"
+grep -q "services: library\[1\] NES/MUSIC" "$LIB/music.log"
 grep -q "system: loading .*music.nes" "$LIB/music.log"
 test -s "$LIB/tune.wav"
 python3 - "$LIB/tune.wav" <<'PY2'

@@ -24,7 +24,10 @@ static uint64_t drm_size;
 static void *drm_map;
 static uint32_t drm_width;
 static uint32_t drm_height;
-static int drm_scale = 1;
+static int drm_scale;
+static int drm_requested_scale;
+static int drm_src_w;
+static int drm_src_h;
 static int drm_xoff;
 static int drm_yoff;
 static uint32_t drm_connector;
@@ -204,17 +207,12 @@ static int drm_init(int scale, const char *title)
         return -1;
     }
 
-    int max_scale = (int)(drm_width / 256);
-    int max_scale_y = (int)(drm_height / 240);
-    if (max_scale_y < max_scale) {
-        max_scale = max_scale_y;
-    }
-    if (scale <= 0 || scale > max_scale) {
-        scale = max_scale > 0 ? max_scale : 1;
-    }
-    drm_scale = scale;
-    drm_xoff = ((int)drm_width - 256 * scale) / 2;
-    drm_yoff = ((int)drm_height - 240 * scale) / 2;
+    drm_requested_scale = scale;
+    drm_scale = 0;
+    drm_src_w = 0;
+    drm_src_h = 0;
+    drm_xoff = 0;
+    drm_yoff = 0;
 
     if (drmModeSetCrtc(drm_fd, crtc_id, drm_fb, 0, 0, &drm_connector, 1,
                        &mode) != 0) {
@@ -229,21 +227,47 @@ static int drm_init(int scale, const char *title)
     drmModeFreeEncoder(encoder);
     drmModeFreeConnector(chosen);
     drmModeFreeResources(res);
-    vcos_log("drm: %ux%u scale %d", drm_width, drm_height, scale);
+    vcos_log("drm: %ux%u display", drm_width, drm_height);
     return 0;
 }
 
 static void drm_present(const uint32_t *fb, int width, int height)
 {
-    if (!drm_map) {
+    if (!drm_map || width <= 0 || height <= 0) {
         return;
     }
+    if (width != drm_src_w || height != drm_src_h) {
+        drm_src_w = width;
+        drm_src_h = height;
+        int max_scale_x = (int)drm_width / width;
+        int max_scale_y = (int)drm_height / height;
+        int max_scale = max_scale_x < max_scale_y ? max_scale_x : max_scale_y;
+        if (max_scale < 1) {
+            max_scale = 1;
+        }
+        int scale = drm_requested_scale;
+        if (scale <= 0 || scale > max_scale) {
+            scale = max_scale;
+        }
+        drm_scale = scale;
+        drm_xoff = ((int)drm_width - width * scale) / 2;
+        drm_yoff = ((int)drm_height - height * scale) / 2;
+        memset(drm_map, 0, (size_t)drm_size);
+        vcos_log("drm: content %dx%d scale %d", width, height, scale);
+    }
     for (int y = 0; y < height * drm_scale; y++) {
+        int dy = drm_yoff + y;
+        if (dy < 0 || dy >= (int)drm_height) {
+            continue;
+        }
         uint32_t *row = (uint32_t *)((uint8_t *)drm_map +
-                                     (size_t)(drm_yoff + y) * drm_pitch);
+                                     (size_t)dy * drm_pitch);
         int sy = y / drm_scale;
         for (int x = 0; x < width * drm_scale; x++) {
-            row[drm_xoff + x] = 0xFF000000u | fb[sy * width + x / drm_scale];
+            int dx = drm_xoff + x;
+            if (dx >= 0 && dx < (int)drm_width) {
+                row[dx] = 0xFF000000u | fb[sy * width + x / drm_scale];
+            }
         }
     }
     (void)drmModeDirtyFB(drm_fd, drm_fb, NULL, 0);

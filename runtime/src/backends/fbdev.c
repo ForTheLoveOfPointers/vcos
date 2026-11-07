@@ -22,6 +22,9 @@ static size_t fb_len;
 static struct fb_var_screeninfo var;
 static struct fb_fix_screeninfo fix;
 static int fb_scale = 1;
+static int fb_requested_scale;
+static int fb_src_w;
+static int fb_src_h;
 static int fb_xoff;
 static int fb_yoff;
 
@@ -48,17 +51,12 @@ static int fb_init(int scale, const char *title)
         return -1;
     }
 
-    int max_scale = var.xres / 256;
-    int max_scale_y = var.yres / 240;
-    if (max_scale_y < max_scale) {
-        max_scale = max_scale_y;
-    }
-    if (scale <= 0 || scale > max_scale) {
-        scale = max_scale > 0 ? max_scale : 1;
-    }
-    fb_scale = scale;
-    fb_xoff = (int)(var.xres - 256 * scale) / 2;
-    fb_yoff = (int)(var.yres - 240 * scale) / 2;
+    fb_requested_scale = scale;
+    fb_scale = 0;
+    fb_src_w = 0;
+    fb_src_h = 0;
+    fb_xoff = 0;
+    fb_yoff = 0;
 
     fb_len = (size_t)fix.line_length * (size_t)var.yres_virtual;
     fb_mem = mmap(NULL, fb_len, PROT_READ | PROT_WRITE, MAP_SHARED, fb_fd, 0);
@@ -69,8 +67,8 @@ static int fb_init(int scale, const char *title)
         fb_mem = NULL;
         return -1;
     }
-    vcos_log("fbdev: %ux%u %u bpp scale %d", var.xres, var.yres,
-             var.bits_per_pixel, scale);
+    vcos_log("fbdev: %ux%u %u bpp", var.xres, var.yres,
+             var.bits_per_pixel);
     return 0;
 }
 
@@ -101,6 +99,28 @@ static void put_pixel(int x, int y, uint32_t color)
 
 static void fb_present(const uint32_t *fb, int width, int height)
 {
+    if (!fb_mem || width <= 0 || height <= 0) {
+        return;
+    }
+    if (width != fb_src_w || height != fb_src_h) {
+        fb_src_w = width;
+        fb_src_h = height;
+        int max_scale_x = (int)var.xres / width;
+        int max_scale_y = (int)var.yres / height;
+        int max_scale = max_scale_x < max_scale_y ? max_scale_x : max_scale_y;
+        if (max_scale < 1) {
+            max_scale = 1;
+        }
+        int scale = fb_requested_scale;
+        if (scale <= 0 || scale > max_scale) {
+            scale = max_scale;
+        }
+        fb_scale = scale;
+        fb_xoff = (int)(var.xres - width * scale) / 2;
+        fb_yoff = (int)(var.yres - height * scale) / 2;
+        memset(fb_mem, 0, fb_len);
+        vcos_log("fbdev: content %dx%d scale %d", width, height, scale);
+    }
     for (int y = 0; y < height * fb_scale; y++) {
         for (int x = 0; x < width * fb_scale; x++) {
             uint32_t color = fb[(y / fb_scale) * width + (x / fb_scale)];

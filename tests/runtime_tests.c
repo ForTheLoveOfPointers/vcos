@@ -149,10 +149,39 @@ static void test_services(void)
     }
 
     services s;
-    services_init(&s, shell, dir, dir, 0);
+    services_init(&s, shell, dir, dir, dir, "vcos-module-host", 0);
     CHECK(s.library_count == 2);
     CHECK(strcmp(s.library[0].name, "DEMO") == 0);
     CHECK(strcmp(s.library[1].name, "MUSIC") == 0);
+    CHECK(s.system_count == 1);
+    CHECK(strcmp(s.systems[0].name, "NES") == 0);
+    CHECK(s.systems[0].count == 2);
+
+    services_write(&s, VCOS_SVC_BASE, VCOS_CMD_SYS_COUNT);
+    CHECK(service_read(&s, 8) == 1);
+
+    services_write(&s, VCOS_SVC_BASE + 1, 0);
+    services_write(&s, VCOS_SVC_BASE, VCOS_CMD_SYS_NAME);
+    CHECK(strcmp((char *)s.data, "NES") == 0);
+
+    services_write(&s, VCOS_SVC_BASE + 1, 0);
+    services_write(&s, VCOS_SVC_BASE, VCOS_CMD_SYS_GAME_COUNT);
+    CHECK(service_read(&s, 8) == 2);
+
+    services_write(&s, VCOS_SVC_BASE + 1, 0);
+    services_write(&s, VCOS_SVC_BASE + 2, 1);
+    services_write(&s, VCOS_SVC_BASE, VCOS_CMD_SYS_GAME_NAME);
+    CHECK(strcmp((char *)s.data, "MUSIC") == 0);
+
+    services_write(&s, VCOS_SVC_BASE + 1, 0);
+    services_write(&s, VCOS_SVC_BASE + 2, 1);
+    services_write(&s, VCOS_SVC_BASE, VCOS_CMD_SYS_LAUNCH);
+    char path[512];
+    char module[512];
+    int external = -1;
+    CHECK(services_take_request(&s, path, sizeof(path), module, sizeof(module),
+                                &external) == VCOS_SVC_REQUEST_LOAD);
+    CHECK(strstr(path, "music.nes") != NULL);
 
     services_write(&s, VCOS_SVC_BASE, VCOS_CMD_LIB_COUNT);
     CHECK(service_read(&s, 8) == 2);
@@ -163,8 +192,8 @@ static void test_services(void)
 
     services_write(&s, VCOS_SVC_BASE + 1, 1);
     services_write(&s, VCOS_SVC_BASE, VCOS_CMD_LIB_LAUNCH);
-    char path[512];
-    CHECK(services_take_request(&s, path, sizeof(path)) == VCOS_SVC_REQUEST_LOAD);
+    CHECK(services_take_request(&s, path, sizeof(path), module, sizeof(module),
+                                &external) == VCOS_SVC_REQUEST_LOAD);
     CHECK(strstr(path, "music.nes") != NULL);
 
     for (int i = 0; i < 16; i++) {

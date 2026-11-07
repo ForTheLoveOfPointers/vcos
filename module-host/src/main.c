@@ -22,6 +22,7 @@
 #include "log.h"
 
 #define MAX_CONTENT_FILES 32
+#define MAX_OPTIONS 64
 #define MAX_VIDEO_BYTES (64u * 1024u * 1024u)
 #define DEFAULT_LOG "/var/lib/vcos/logs/module-host.log"
 
@@ -62,6 +63,7 @@ static void usage(const char *argv0)
     printf("  --load-state PATH   load state before running\n");
     printf("  --log PATH          persistent log path\n");
     printf("  --config PATH       logging config (default /etc/vcos/logging.conf)\n");
+    printf("  --option KEY=VALUE  module configuration option (repeatable)\n");
     printf("  --no-kmsg           do not mirror events to /dev/kmsg\n");
     printf("  --no-pace           do not sleep between frames\n");
     printf("  --verbose           verbose runtime logging\n");
@@ -335,7 +337,9 @@ int main(int argc, char **argv)
     const char *log_path = NULL;
     const char *config_path = "/etc/vcos/logging.conf";
     content_arg extras[MAX_CONTENT_FILES];
+    vcos_option options[MAX_OPTIONS];
     int extra_count = 0;
+    int option_count = 0;
     int scale = 0;
     int frames = 0;
     int verbose = 0;
@@ -387,6 +391,17 @@ int main(int argc, char **argv)
             log_path = argv[++i];
         } else if (strcmp(arg, "--config") == 0 && i + 1 < argc) {
             config_path = argv[++i];
+        } else if (strcmp(arg, "--option") == 0 && i + 1 < argc) {
+            char *option = argv[++i];
+            char *eq = strchr(option, '=');
+            if (!eq || eq == option || !eq[1] || option_count >= MAX_OPTIONS) {
+                fprintf(stderr, "vcos-module-host: invalid option %s\n", option);
+                return 2;
+            }
+            *eq = '\0';
+            options[option_count].key = option;
+            options[option_count].value = eq + 1;
+            option_count++;
         } else {
             fprintf(stderr, "vcos-module-host: unknown option %s\n", arg);
             usage(argv[0]);
@@ -548,8 +563,16 @@ int main(int argc, char **argv)
         .request_quit = host_quit_cb,
     };
 
+    vcos_config config = {
+        .abi = {sizeof(vcos_config), VCOS_MODULE_ABI_MAJOR,
+                VCOS_MODULE_ABI_MINOR},
+        .option_count = (uint32_t)option_count,
+        .option_stride = sizeof(vcos_option),
+        .options = options,
+    };
+
     vcos_module_instance *instance = NULL;
-    vcos_result result = descriptor->create(&host, &content, NULL, &instance);
+    vcos_result result = descriptor->create(&host, &content, &config, &instance);
     if (result != VCOS_OK || !instance || !instance->api ||
         !abi_ok(&instance->api->abi,
                 offsetof(vcos_module_api, destroy) + sizeof(void *)) ||

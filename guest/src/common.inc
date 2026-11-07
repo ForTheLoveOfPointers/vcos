@@ -28,6 +28,11 @@
 .equ SVC_LIB_NAME,  9
 .equ SVC_LIB_LAUNCH, 10
 .equ SVC_REBOOT, 11
+.equ SVC_SYS_COUNT, 12
+.equ SVC_SYS_NAME, 13
+.equ SVC_SYS_GAME_COUNT, 14
+.equ SVC_SYS_GAME_NAME, 15
+.equ SVC_SYS_LAUNCH, 16
 
 .equ BTN_A,      $80
 .equ BTN_B,      $40

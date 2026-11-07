@@ -2,8 +2,9 @@ BUILD := build
 X11 := $(shell pkg-config --exists x11 2>/dev/null && echo 1 || echo 0)
 DRM := $(shell pkg-config --exists libdrm 2>/dev/null && echo 1 || echo 0)
 VMOD_MODULE ?= buildroot/output/target/usr/lib/vcos/modules/nes.so
+CROSS_CC ?= buildroot/output/host/bin/x86_64-buildroot-linux-musl-gcc
 
-.PHONY: all runtime roms games modules module-host modman modular vmod vmod-sign test test-image test-modman-image run run-module run-module-headless run-headless run-qemu clean distclean buildroot-clone
+.PHONY: all runtime roms games modules module-host modman modular vmod vmod-sign vmod-genesis vmod-genesis-sign test test-genesis genesis genesis-target test-image test-modman-image run run-systems run-systems-headless run-genesis run-module run-module-headless run-headless run-qemu clean distclean buildroot-clone
 
 all: runtime roms modules module-host modman
 
@@ -39,6 +40,65 @@ vmod:
 		--description "VCOS NES emulator module" \
 		--out $(BUILD)/vmod/org.vcos.nes-1.0.0.vmod
 
+genesis:
+	./scripts/build-genesis-module.sh
+
+genesis-target:
+	@test -x "$(CROSS_CC)" || { \
+		echo "missing cross compiler $(CROSS_CC); run ./scripts/build-image.sh first" >&2; \
+		exit 1; }
+	CC="$(CURDIR)/$(CROSS_CC)" \
+	GENESIS_CORE_DIR="$(CURDIR)/build/cores/genesis-plus-gx-target" \
+	GENESIS_MODULE_OUT="$(CURDIR)/build/modules/genesis-target.so" \
+	./scripts/build-genesis-module.sh
+
+vmod-genesis: genesis-target
+	mkdir -p $(BUILD)/vmod
+	python3 scripts/make-vmod.py --id org.vcos.genesis --name "Genesis Plus GX" \
+		--version 1.0.0 --module $(BUILD)/modules/genesis-target.so \
+		--system genesis --extension .md --extension .gen --extension .smd \
+		--extension .bin --license "Genesis Plus GX" \
+		--description "Sega Genesis / Mega Drive libretro module" \
+		--out $(BUILD)/vmod/org.vcos.genesis-1.0.0.vmod
+
+vmod-genesis-sign: vmod-genesis
+	VCOS_SIGNING_KEY="$${VCOS_SIGNING_KEY:-$(CURDIR)/keys/private/vcos-signing-private.pem}" \
+		./scripts/sign-vmod.sh $(BUILD)/vmod/org.vcos.genesis-1.0.0.vmod
+
+test-genesis: genesis module-host runtime roms
+	./tests/genesis_module_tests.sh
+
+run-genesis: genesis module-host
+	./$(BUILD)/module-host/vcos-module-host \
+		--module $(BUILD)/modules/genesis.so \
+		--content tests/assets/genesis-hello-world.bin \
+		--backend x11 --audio auto --no-kmsg
+
+run-systems: runtime roms games modules module-host genesis
+	@mkdir -p $(BUILD)/lib/games
+	@cp -f tests/assets/genesis-hello-world.bin $(BUILD)/lib/games/
+	./$(BUILD)/runtime/vcos \
+		--rom $(BUILD)/guest/shell.nes \
+		--shell $(BUILD)/guest/shell.nes \
+		--lib $(BUILD)/guest \
+		--data $(BUILD)/lib \
+		--modules $(BUILD)/modules \
+		--module-host $(BUILD)/module-host/vcos-module-host \
+		--backend x11 --audio auto --verbose
+
+run-systems-headless: runtime roms games modules module-host genesis
+	@mkdir -p $(BUILD)/lib/games
+	@cp -f tests/assets/genesis-hello-world.bin $(BUILD)/lib/games/
+	./$(BUILD)/runtime/vcos \
+		--rom $(BUILD)/guest/shell.nes \
+		--shell $(BUILD)/guest/shell.nes \
+		--lib $(BUILD)/guest \
+		--data $(BUILD)/lib \
+		--modules $(BUILD)/modules \
+		--module-host $(BUILD)/module-host/vcos-module-host \
+		--backend ppm --frames 3 --screenshot $(BUILD)/systems.ppm \
+		--audio none --verbose
+
 vmod-sign: vmod
 	VCOS_SIGNING_KEY="$${VCOS_SIGNING_KEY:-$(CURDIR)/keys/private/vcos-signing-private.pem}" \
 		./scripts/sign-vmod.sh $(BUILD)/vmod/org.vcos.nes-1.0.0.vmod
@@ -54,14 +114,18 @@ test: runtime roms modules module-host modman
 	./tests/modman_online_tests.sh
 	./tests/integration.sh
 
-run: runtime roms games
+run: runtime roms games modules module-host
 	./$(BUILD)/runtime/vcos --rom $(BUILD)/guest/shell.nes \
 		--lib $(BUILD)/guest --data $(BUILD)/lib \
+		--modules $(BUILD)/modules \
+		--module-host $(BUILD)/module-host/vcos-module-host \
 		--backend x11 --scale 3 --verbose
 
-run-headless: runtime roms games
+run-headless: runtime roms games modules module-host
 	./$(BUILD)/runtime/vcos --rom $(BUILD)/guest/shell.nes \
 		--lib $(BUILD)/guest --data $(BUILD)/lib \
+		--modules $(BUILD)/modules \
+		--module-host $(BUILD)/module-host/vcos-module-host \
 		--backend ppm --frames 3 \
 		--screenshot $(BUILD)/shell.ppm --verbose
 

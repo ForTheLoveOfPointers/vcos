@@ -16,9 +16,10 @@ static Display *dpy;
 static Window win;
 static GC gc;
 static XImage *img;
-static uint32_t *scaled;
 static int win_w;
 static int win_h;
+static int src_w;
+static int src_h;
 static int scale_factor = 1;
 static Atom wm_delete;
 static int quit_flag;
@@ -89,6 +90,39 @@ static uint8_t map_key(KeySym ks, int *player, int *quit)
     }
 }
 
+static int x11_alloc_image(int width, int height)
+{
+    if (width < 1) {
+        width = 1;
+    }
+    if (height < 1) {
+        height = 1;
+    }
+    if (img && width == win_w && height == win_h) {
+        return 0;
+    }
+    if (img) {
+        XDestroyImage(img);
+        img = NULL;
+    }
+    int screen = DefaultScreen(dpy);
+    img = XCreateImage(dpy, DefaultVisual(dpy, screen),
+                       (unsigned)DefaultDepth(dpy, screen), ZPixmap, 0, NULL,
+                       (unsigned)width, (unsigned)height, 32, 0);
+    if (!img) {
+        return -1;
+    }
+    img->data = calloc(1, (size_t)img->bytes_per_line * (size_t)height);
+    if (!img->data) {
+        XDestroyImage(img);
+        img = NULL;
+        return -1;
+    }
+    win_w = width;
+    win_h = height;
+    return 0;
+}
+
 static int x11_init(int scale, const char *title)
 {
     dpy = XOpenDisplay(NULL);
@@ -115,21 +149,7 @@ static int x11_init(int scale, const char *title)
     XSetWMProtocols(dpy, win, &wm_delete, 1);
 
     gc = XCreateGC(dpy, win, 0, NULL);
-    img = XCreateImage(dpy, DefaultVisual(dpy, screen),
-                       (unsigned)DefaultDepth(dpy, screen), ZPixmap, 0, NULL,
-                       (unsigned)win_w, (unsigned)win_h, 32, 0);
-    if (!img) {
-        XCloseDisplay(dpy);
-        dpy = NULL;
-        return -1;
-    }
-    img->data = calloc(1, (size_t)img->bytes_per_line * (size_t)win_h);
-    scaled = malloc((size_t)win_w * (size_t)win_h * sizeof(uint32_t));
-    if (!img->data || !scaled) {
-        XDestroyImage(img);
-        img = NULL;
-        free(scaled);
-        scaled = NULL;
+    if (x11_alloc_image(win_w, win_h) != 0) {
         XCloseDisplay(dpy);
         dpy = NULL;
         return -1;
@@ -138,26 +158,71 @@ static int x11_init(int scale, const char *title)
     XMapWindow(dpy, win);
     XFlush(dpy);
     quit_flag = 0;
+    src_w = 0;
+    src_h = 0;
     vcos_log("backend: x11 %dx%d (scale %d)", win_w, win_h, scale);
     return 0;
 }
 
 static void x11_present(const uint32_t *fb, int width, int height)
 {
+    if (!img || width <= 0 || height <= 0) {
+        return;
+    }
+    int screen = DefaultScreen(dpy);
+    if (width != src_w || height != src_h) {
+        src_w = width;
+        src_h = height;
+        int max_w = DisplayWidth(dpy, screen) * 9 / 10;
+        int max_h = DisplayHeight(dpy, screen) * 9 / 10;
+        int target_w = width * scale_factor;
+        int target_h = height * scale_factor;
+        if (target_w > max_w) {
+            target_h = target_h * max_w / target_w;
+            target_w = max_w;
+        }
+        if (target_h > max_h) {
+            target_w = target_w * max_h / target_h;
+            target_h = max_h;
+        }
+        if (target_w < 1) {
+            target_w = 1;
+        }
+        if (target_h < 1) {
+            target_h = 1;
+        }
+        vcos_log("backend: x11 content %dx%d window %dx%d", width, height,
+                 target_w, target_h);
+        XResizeWindow(dpy, win, (unsigned)target_w, (unsigned)target_h);
+        x11_alloc_image(target_w, target_h);
+    }
+
     int stride = img->bytes_per_line / 4;
     uint32_t *dst = (uint32_t *)img->data;
+    memset(img->data, 0, (size_t)img->bytes_per_line * (size_t)win_h);
 
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            uint32_t color = fb[y * width + x];
-            uint32_t *row = dst + (size_t)(y * scale_factor) * (size_t)stride +
-                            (size_t)(x * scale_factor);
-            for (int sy = 0; sy < scale_factor; sy++) {
-                uint32_t *p = row + (size_t)sy * (size_t)stride;
-                for (int sx = 0; sx < scale_factor; sx++) {
-                    p[sx] = color;
-                }
-            }
+    long long sx = ((long long)win_w << 16) / width;
+    long long sy = ((long long)win_h << 16) / height;
+    long long fit = sx < sy ? sx : sy;
+    int out_w = (int)(((long long)width * fit) >> 16);
+    int out_h = (int)(((long long)height * fit) >> 16);
+    if (out_w < 1) {
+        out_w = 1;
+    }
+    if (out_h < 1) {
+        out_h = 1;
+    }
+    int xoff = (win_w - out_w) / 2;
+    int yoff = (win_h - out_h) / 2;
+
+    for (int y = 0; y < out_h; y++) {
+        int source_y = (int)(((long long)y * height) / out_h);
+        const uint32_t *source_row = fb + (size_t)source_y * width;
+        uint32_t *row = dst + (size_t)(yoff + y) * (size_t)stride +
+                        (size_t)xoff;
+        for (int x = 0; x < out_w; x++) {
+            int source_x = (int)(((long long)x * width) / out_w);
+            row[x] = source_row[source_x];
         }
     }
     XPutImage(dpy, win, gc, img, 0, 0, 0, 0, (unsigned)win_w, (unsigned)win_h);
@@ -186,6 +251,13 @@ static int x11_poll(input *in, int *quit)
                     buttons[player] = (uint8_t)(buttons[player] & ~button);
                 }
             }
+        } else if (ev.type == ConfigureNotify) {
+            int width = ev.xconfigure.width;
+            int height = ev.xconfigure.height;
+            if (width > 0 && height > 0 &&
+                (width != win_w || height != win_h)) {
+                x11_alloc_image(width, height);
+            }
         } else if (ev.type == ClientMessage) {
             if ((Atom)ev.xclient.data.l[0] == wm_delete) {
                 quit_flag = 1;
@@ -211,8 +283,6 @@ static void x11_shutdown(void)
         XDestroyImage(img);
         img = NULL;
     }
-    free(scaled);
-    scaled = NULL;
     if (win) {
         XDestroyWindow(dpy, win);
         win = 0;

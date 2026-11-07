@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include "apu.h"
@@ -38,6 +39,8 @@ static void usage(const char *argv0)
     printf("  --shell PATH        cartridge used for return-to-shell\n");
     printf("  --lib DIR           cartridge library directory (default: .)\n");
     printf("  --data DIR          save-data directory (default: --lib)\n");
+    printf("  --modules DIR       built-in module directory\n");
+    printf("  --module-host PATH  external module host executable\n");
     printf("  --backend NAME      x11, drm, fb, ppm or null (default: auto)\n");
     printf("  --scale N           integer upscale factor (default: backend best)\n");
     printf("  --frames N          stop after N frames (0 = run forever)\n");
@@ -123,6 +126,8 @@ int main(int argc, char **argv)
     const char *shell_path = NULL;
     const char *lib_dir = NULL;
     const char *data_dir = NULL;
+    const char *modules_dir = "/usr/lib/vcos/modules";
+    const char *module_host = "/usr/bin/vcos-module-host";
     const char *backend_name = NULL;
     const char *screenshot = NULL;
     const char *audio_sink = NULL;
@@ -148,6 +153,10 @@ int main(int argc, char **argv)
             lib_dir = argv[++i];
         } else if (strcmp(arg, "--data") == 0 && i + 1 < argc) {
             data_dir = argv[++i];
+        } else if (strcmp(arg, "--modules") == 0 && i + 1 < argc) {
+            modules_dir = argv[++i];
+        } else if (strcmp(arg, "--module-host") == 0 && i + 1 < argc) {
+            module_host = argv[++i];
         } else if (strcmp(arg, "--backend") == 0 && i + 1 < argc) {
             backend_name = argv[++i];
         } else if (strcmp(arg, "--scale") == 0 && i + 1 < argc) {
@@ -225,7 +234,8 @@ int main(int argc, char **argv)
     ppu_init(&p, cart);
     apu_init(&a);
     input_init(&in);
-    services_init(&svc, shell_path, lib_dir, data_dir, verbose);
+    services_init(&svc, shell_path, lib_dir, data_dir, modules_dir,
+                  module_host, verbose);
     bus_init(&b, cart, &p, &a, &in, &svc);
     bus_reset(&b);
 
@@ -332,7 +342,11 @@ int main(int argc, char **argv)
         }
 
         char next_path[600];
-        int request = services_take_request(&svc, next_path, sizeof(next_path));
+        char next_module[512];
+        int next_external = 0;
+        int request = services_take_request(&svc, next_path, sizeof(next_path),
+                                            next_module, sizeof(next_module),
+                                            &next_external);
         if (request == VCOS_SVC_REQUEST_SHUTDOWN) {
             vcos_log("system: shutdown requested");
             break;
@@ -345,9 +359,69 @@ int main(int argc, char **argv)
             break;
         }
         if (request == VCOS_SVC_REQUEST_LOAD) {
-            vcos_log("system: loading %s", next_path);
-            if (switch_cart(next_path, &cart, &p, &b) != 0) {
-                vcos_error("system: cannot load %s, keeping current cartridge", next_path);
+            if (next_external) {
+                if (next_module[0] == '\0') {
+                    vcos_error("system: no module available for %s", next_path);
+                    continue;
+                }
+                vcos_log("system: launching %s with %s", next_path,
+                         next_module);
+                const char *child_backend = be->name;
+                be->shutdown();
+                audio_close();
+
+                pid_t pid = fork();
+                if (pid == 0) {
+                    char frames_buf[32];
+                    char *args[16];
+                    int n = 0;
+                    args[n++] = (char *)module_host;
+                    args[n++] = "--module";
+                    args[n++] = next_module;
+                    args[n++] = "--content";
+                    args[n++] = next_path;
+                    args[n++] = "--backend";
+                    args[n++] = (char *)child_backend;
+                    args[n++] = "--audio";
+                    args[n++] = (char *)(audio_sink ? audio_sink : "auto");
+                    if (frames > 0) {
+                        snprintf(frames_buf, sizeof(frames_buf), "%d", frames);
+                        args[n++] = "--frames";
+                        args[n++] = frames_buf;
+                    }
+                    args[n] = NULL;
+                    execv(module_host, args);
+                    _exit(127);
+                }
+                int status = 0;
+                if (pid < 0 || waitpid(pid, &status, 0) < 0) {
+                    vcos_error("system: cannot run module host");
+                } else if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+                    vcos_error("system: module host exited with status %d",
+                               WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+                } else {
+                    vcos_log("system: module host returned");
+                }
+
+                if (be->init(scale, "VCOS") != 0) {
+                    vcos_error("%s unavailable after module, using null",
+                               be->name);
+                    be = &backend_null;
+                    if (be->init(scale, "VCOS") != 0) {
+                        vcos_error("system: no usable backend after module");
+                        quit = 1;
+                        continue;
+                    }
+                }
+                if (audio_open(audio_sink ? audio_sink : "auto") != 0) {
+                    vcos_error("system: audio disabled after module");
+                }
+                audio_on = audio_active();
+            } else {
+                vcos_log("system: loading %s", next_path);
+                if (switch_cart(next_path, &cart, &p, &b) != 0) {
+                    vcos_error("system: cannot load %s, keeping current cartridge", next_path);
+                }
             }
         }
     }

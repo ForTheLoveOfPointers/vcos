@@ -117,8 +117,11 @@ optionally libX11 development headers.
                      test local and HTTPS module installation in QEMU
   make run           run the legacy shell in an X11 window
   make run-headless  render the shell headlessly
+  make run-systems   build Genesis and open the shell with both systems
   make modular       build the module host and package manager
   make vmod-sign     package and sign the target NES module
+  make vmod-genesis-sign
+                     build, package and sign the target Genesis module
 
 The full image is produced with:
 
@@ -127,6 +130,19 @@ The full image is produced with:
 
 Artifacts land in buildroot/output/images/. That directory, the Buildroot
 source tree, local signing keys and test output are not stored in Git.
+
+The shell starts with a console menu built from the available content.
+Choosing a console opens that console's game list; B returns to the
+console menu. NES games run directly in the built-in emulator. Genesis
+files (.md, .gen, .smd, .bin) start vcos-module-host with the matching
+module, then return to the Genesis game list when it exits. On the
+target, Genesis content in /var/lib/vcos/games appears automatically
+after the Genesis module is installed. make run-systems demonstrates
+the console and game menus on the host with the bundled hello-world ROM.
+
+For the QEMU target, build and sign the Genesis package with
+make vmod-genesis-sign, install the resulting .vmod through vcos-modman,
+and copy a Genesis ROM into /var/lib/vcos/games.
 
 
 DATA
