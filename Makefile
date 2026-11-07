@@ -4,7 +4,7 @@ DRM := $(shell pkg-config --exists libdrm 2>/dev/null && echo 1 || echo 0)
 VMOD_MODULE ?= buildroot/output/target/usr/lib/vcos/modules/nes.so
 CROSS_CC ?= buildroot/output/host/bin/x86_64-buildroot-linux-musl-gcc
 
-.PHONY: all runtime roms games modules module-host modman modular vmod vmod-sign vmod-genesis vmod-genesis-sign test test-genesis genesis genesis-target test-image test-modman-image run run-systems run-systems-headless run-genesis run-module run-module-headless run-headless run-qemu clean distclean buildroot-clone
+.PHONY: all runtime roms games modules module-host modman modular vmod vmod-sign vmod-genesis vmod-genesis-sign test test-genesis genesis genesis-target test-image test-modman-image run run-systems run-systems-headless run-genesis run-module run-module-headless run-headless run-qemu rpcs3 run-ps3 test-rpcs3 clean distclean buildroot-clone
 
 all: runtime roms modules module-host modman
 
@@ -98,6 +98,19 @@ run-systems-headless: runtime roms games modules module-host genesis
 		--module-host $(BUILD)/module-host/vcos-module-host \
 		--backend ppm --frames 3 --screenshot $(BUILD)/systems.ppm \
 		--audio none --verbose
+
+rpcs3:
+	./scripts/get-rpcs3.sh
+
+run-ps3: rpcs3
+	@if [ -n "$(GAME)" ]; then \
+		./scripts/run-ps3.sh "$(GAME)"; \
+	else \
+		./scripts/run-ps3.sh; \
+	fi
+
+test-rpcs3: rpcs3
+	./scripts/run-ps3.sh --test
 
 vmod-sign: vmod
 	VCOS_SIGNING_KEY="$${VCOS_SIGNING_KEY:-$(CURDIR)/keys/private/vcos-signing-private.pem}" \

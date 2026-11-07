@@ -122,6 +122,9 @@ optionally libX11 development headers.
   make vmod-sign     package and sign the target NES module
   make vmod-genesis-sign
                      build, package and sign the target Genesis module
+  make rpcs3         download RPCS3 and official PS3 firmware
+  make run-ps3       boot the PS3 XMB (or pass GAME=/path/to/game.iso)
+  make test-rpcs3    smoke-test Vulkan and emulator startup
 
 The full image is produced with:
 
@@ -143,6 +146,24 @@ the console and game menus on the host with the bundled hello-world ROM.
 For the QEMU target, build and sign the Genesis package with
 make vmod-genesis-sign, install the resulting .vmod through vcos-modman,
 and copy a Genesis ROM into /var/lib/vcos/games.
+
+
+PLAYSTATION 3
+-------------
+
+PS3 emulation does not fit the current module ABI: RPCS3 needs Vulkan,
+Qt and multiple threads, and libretro has no PS3 core. VCOS therefore
+prepares it as a standalone host emulator for testing, not as a .vmod.
+
+  make rpcs3        download RPCS3 + official PS3 firmware into build/ps3
+  make run-ps3      boot the PS3 XMB as a smoke test
+  make run-ps3 GAME=/path/to/game.iso
+  make test-rpcs3   check Vulkan initialization and emulator startup
+
+The AppImage, firmware, RPCS3 config and caches stay under build/ps3. On
+this machine RPCS3 initializes Vulkan on the Intel Iris Xe GPU. This is
+not part of the Buildroot image; running PS3 content inside VCOS needs a
+separate external-process integration and a much larger image.
 
 
 DATA
